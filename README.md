@@ -1,43 +1,48 @@
-# Lateral-Line-System
+# Lateral Line System
 
 ## Project Hierarchy
 
 ```text
-Differential Sensor/
-├─ src/
-│   └── main.cpp                 # ESP32 firmware and sensor acquisition
-├── Data/                        # Exported pressure CSV files and plots
-├── capture.py                   # Live plotting and data-export program
-Documentation/
-├── Photos/                      # Hardware and experimental setup images
-├── Weekly Reporting/            # Weekly project progress reports
-├── Differential Sensor Documentation.pdf
-README.md                        # Project overview and instructions
+Lateral-Line-System/
+├── Differential Sensor/
+│   ├── src/
+│   │   └── main.cpp              # ESP32 firmware and sensor acquisition
+│   ├── Data/                     # Exported pressure CSV files and plots
+│   └── capture.py                # Live plotting and data-export program
+├── Documentation/
+│   ├── Photos/                   # Hardware and experimental setup images
+│   ├── Weekly Reporting/         # Weekly project progress reports
+│   └── Differential Sensor Documentation.pdf
+└── README.md                     # Project overview and instructions
 ```
+
 ## Differential Sensor
 
 ### ESP32 Firmware Setup and Programming
 
-    Communication Outline
-    Program firmware of ESP32 through PlatformIO->
-    ESP32 receives data -> 
-    ESP32 sends data through serial communication to your computer -> 
-    capture.py script scans port and formats data
+#### Communication Outline
 
-    Utilize VScode and the PlatformIO Extension to program the ESP32
+1. Program the ESP32 firmware using PlatformIO.
+2. The ESP32 reads data from the eight pressure sensors.
+3. The ESP32 sends the timestamp and pressure data to the computer through serial communication.
+4. The `capture.py` script reads the serial port, processes the data, and generates the requested output.
 
-    After uploading Code then the serial communication between the ESP and your serial port is done
-    using the capture.py python script
+#### Setup
 
-    Use configuration variables in capture.py script based on desired data collection
+Use Visual Studio Code with the PlatformIO extension to program the ESP32.
 
-    Install the required Python libraries:
-    ```bash
-    pip install pyserial matplotlib numpy
-    ```
+After uploading the firmware, close the PlatformIO Serial Monitor so that `capture.py` can access the serial port.
 
-    Run the script:
+Set the configuration variables in `capture.py` based on the desired data-collection mode.
 
-    ```bash
-    python capture.py
-    ```
+Install the required Python libraries:
+
+```bash
+pip install pyserial matplotlib numpy
+```
+
+Run the script:
+
+```bash
+python capture.py
+```
