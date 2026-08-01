@@ -9,10 +9,10 @@ Differential Sensor/
 ├── Data/                        # Exported pressure CSV files and plots
 ├── capture.py                   # Live plotting and data-export program
 Documentation/
-├── Photos/                  # Hardware and experimental setup images
-├── Weekly Reporting/        # Weekly project progress reports
+├── Photos/                      # Hardware and experimental setup images
+├── Weekly Reporting/            # Weekly project progress reports
 ├── Differential Sensor Documentation.pdf
-README.md                    # Project overview and instructions
+README.md                        # Project overview and instructions
 ```
 ## Differential Sensor
 
@@ -31,11 +31,13 @@ README.md                    # Project overview and instructions
 
     Use configuration variables in capture.py script based on desired data collection
 
-    To run code it is necessary to install some libraries in your vscode terminal:
-    ```python
-        pip install pyserial matplotlib numpy
+    Install the required Python libraries:
+    ```bash
+    pip install pyserial matplotlib numpy
     ```
-    To run the script:
-    ```python
-        python capture.py
+
+    Run the script:
+
+    ```bash
+    python capture.py
     ```
