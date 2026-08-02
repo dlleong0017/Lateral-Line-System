@@ -9,6 +9,11 @@ Lateral-Line-System/
 │   │   └── main.cpp              # ESP32 firmware and sensor acquisition
 │   ├── Data/                     # Exported pressure CSV files and plots
 │   └── capture.py                # Live plotting and data-export program
+├── Pitot Tube/
+│   ├── src/
+│   │   └── main.cpp              # ESP32 firmware and sensor acquisition
+│   ├── Data/                     # Exported velocity CSV files and plots
+│   └── capture.py                # Live plotting and data-export program
 ├── Documentation/
 │   ├── Photos/                   # Hardware and experimental setup images
 │   ├── Weekly Reporting/         # Weekly project progress reports
@@ -16,7 +21,7 @@ Lateral-Line-System/
 └── README.md                     # Project overview and instructions
 ```
 
-## Differential Sensor
+## Differential Sensor/Pitot Tube
 
 ### ESP32 Firmware Setup and Programming
 
