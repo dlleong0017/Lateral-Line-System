@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Live-plot or record fluid velocity and pressure from a serial sensor.
+
+Serial line format (one sample per line):
+    timestamp_ms,velocity_m_s,pressure_kpa
+"""
 
 import csv
 import os
@@ -12,152 +17,214 @@ import serial
 from matplotlib.animation import FuncAnimation
 
 
-# =========================
+# =============================================================================
 # Configuration
-# =========================
+# =============================================================================
 
-MODE = "live"          # "live" or "export"
-FILTER_MODE = True       # True = filtered graphs
+MODE = "live"                           # "live" or "export"
+
+FILTER_MODE = True                      # low-pass the velocity
+FILTER_CUTOFF_HZ = 5                    # discard content above this frequency
+
+RECORDING_SECONDS = 300                 # export mode only
+DATA_DIRECTORY = "Data/8-5-26 Testing"  # export mode only
 
 PORT = "COM4"
 BAUD = 115200
 
-# Live mode starts the x-axis at 0 s and grows it as the run continues.
-# This is only the initial width, so the plot is not squashed at t = 0.
-LIVE_INITIAL_X_SECONDS = 10
-
-# Display-only decimation. The live axis keeps every sample, but drawing
-# hundreds of thousands of points every 50 ms stalls the animation, so
-# the trace is strided down to at most this many points for rendering.
-LIVE_MAX_DRAW_POINTS = 20000
-
-RECORDING_SECONDS = 240
-DATA_DIRECTORY = "Data/8-5-26 Testing"
-
-FILTER_CUTOFF_HZ = 5
-
-# Anchor the velocity axis at 0 m/s.
-# NOTE: set this False for runs with reverse flow, otherwise
-# negative velocities are drawn below the visible axis.
-Y_AXIS_START_AT_ZERO = False
-
-# Headroom above the largest plotted velocity.
-Y_AXIS_HEADROOM = 1.05
-
-# Fallback axis top when no positive data is present.
-Y_AXIS_MIN_TOP = 0.05
+# =============================================================================
 
 
-# Live-plot variables
-ser = None
-fig = None
+# -----------------------------------------------------------------------------
+# Serial input
+# -----------------------------------------------------------------------------
 
-velocity_ax = None
-velocity_line = None
-
-times = deque()
-velocities = deque()
-pressures = deque()
-
-first_timestamp = None
-
-
-def read_sample():
-    """Read timestamp, fluid velocity, and pressure."""
-
-    text = ser.readline().decode(
-        "ascii",
-        errors="ignore",
-    ).strip()
-
+def read_sample(ser):
+    """Return (timestamp_ms, velocity, pressure), or None for a bad line."""
+    text = ser.readline().decode("ascii", errors="ignore").strip()
     parts = text.split(",")
 
-    # Expected:
-    # timestamp,velocity,pressure
     if len(parts) != 3:
         return None
 
     try:
-        timestamp = int(parts[0])
-        velocity = float(parts[1])
-        pressure = float(parts[2])
+        return int(parts[0]), float(parts[1]), float(parts[2])
     except ValueError:
-        # Ignore column headers and malformed lines.
+        # Column headers and partial lines land here.
         return None
 
-    return timestamp, velocity, pressure
+
+def print_sample(timestamp, velocity, pressure):
+    print(f"{timestamp},{velocity:.4f},{pressure:.4f}")
 
 
-def fourier_filter(recorded_times, signal_data):
-    """Remove signal frequencies above the cutoff."""
+# -----------------------------------------------------------------------------
+# Signal processing
+# -----------------------------------------------------------------------------
 
-    if len(recorded_times) < 2:
-        return np.asarray(signal_data)
+def fourier_filter(times, values):
+    """Zero out frequency content above FILTER_CUTOFF_HZ."""
+    values = np.asarray(values, dtype=float)
 
-    time_differences = np.diff(recorded_times)
-    valid_differences = time_differences[
-        time_differences > 0
-    ]
+    if values.size < 2:
+        return values
 
-    if len(valid_differences) == 0:
-        return np.asarray(signal_data)
+    intervals = np.diff(times)
+    intervals = intervals[intervals > 0]
 
-    sample_period = np.median(valid_differences)
-    signal_array = np.asarray(signal_data)
+    if intervals.size == 0:
+        return values
 
-    frequency_data = np.fft.rfft(signal_array)
+    sample_period = float(np.median(intervals))
 
-    frequencies = np.fft.rfftfreq(
-        len(signal_array),
-        d=sample_period,
-    )
+    spectrum = np.fft.rfft(values)
+    frequencies = np.fft.rfftfreq(values.size, d=sample_period)
+    spectrum[frequencies > FILTER_CUTOFF_HZ] = 0
 
-    frequency_data[
-        frequencies > FILTER_CUTOFF_HZ
-    ] = 0
-
-    return np.fft.irfft(
-        frequency_data,
-        n=len(signal_array),
-    )
+    return np.fft.irfft(spectrum, n=values.size)
 
 
-def apply_velocity_ylim(axis, plotted_values):
-    """Set the velocity axis limits, starting at 0 if configured."""
+def decimate(times, values):
+    """Thin a trace to ~20,000 drawn points. Stored data is never touched."""
+    if len(times) <= 20_000:
+        return times, values
 
-    values = np.asarray(plotted_values, dtype=float)
+    stride = len(times) // 20_000 + 1
+    return times[::stride], values[::stride]
+
+
+# -----------------------------------------------------------------------------
+# Plot helpers
+# -----------------------------------------------------------------------------
+
+def style_velocity_axis(axis):
+    axis.set_xlabel("Time (s)")
+    axis.set_ylabel("Fluid Velocity (m/s)")
+    axis.grid(alpha=0.2)
+
+
+def apply_velocity_ylim(axis, values):
+    """Fit the y-axis to the data with 5% padding above and below."""
+    values = np.asarray(values, dtype=float)
 
     if values.size == 0:
         return
 
     data_min = float(np.nanmin(values))
     data_max = float(np.nanmax(values))
+    span = data_max - data_min
 
-    if Y_AXIS_START_AT_ZERO:
-        bottom = 0.0
-        top = max(
-            data_max * Y_AXIS_HEADROOM,
-            Y_AXIS_MIN_TOP,
+    # Flat trace: fall back to a window at least 0.05 m/s tall.
+    if span <= 0:
+        span = max(abs(data_max), 0.05)
+
+    axis.set_ylim(data_min - 0.05 * span, data_max + 0.05 * span)
+
+
+def filter_suffix():
+    return f" — {FILTER_CUTOFF_HZ} Hz Cutoff" if FILTER_MODE else ""
+
+
+# -----------------------------------------------------------------------------
+# Live mode
+# -----------------------------------------------------------------------------
+
+class LivePlot:
+    """Streams samples from the serial port into a scrolling velocity graph."""
+
+    def __init__(self, ser):
+        self.ser = ser
+        self.first_timestamp = None
+
+        self.times = deque()
+        self.velocities = deque()
+        self.pressures = deque()
+
+        self.figure, self.axis = plt.subplots(figsize=(10, 5))
+        self.line, = self.axis.plot([], [], linewidth=1.5, color="tab:blue")
+
+        style_velocity_axis(self.axis)
+        self.axis.set_xlim(0, 10)
+
+        self.figure.suptitle(f"Live Fluid Velocity{filter_suffix()}")
+
+    def drain_serial(self):
+        """Consume every sample currently waiting in the input buffer."""
+        while self.ser.in_waiting:
+            sample = read_sample(self.ser)
+
+            if sample is None:
+                continue
+
+            timestamp, velocity, pressure = sample
+
+            if self.first_timestamp is None:
+                self.first_timestamp = timestamp
+
+            self.times.append((timestamp - self.first_timestamp) / 1000.0)
+            self.velocities.append(velocity)
+            self.pressures.append(pressure)
+
+            print_sample(timestamp, velocity, pressure)
+
+    def update(self, _frame):
+        self.drain_serial()
+
+        if not self.times:
+            return (self.line,)
+
+        times = list(self.times)
+        velocities = list(self.velocities)
+
+        if FILTER_MODE:
+            velocities = fourier_filter(times, velocities)
+
+        draw_times, draw_velocities = decimate(times, velocities)
+        self.line.set_data(draw_times, draw_velocities)
+
+        # Anchored at 0 s; the right edge grows with the run, 10 s minimum.
+        self.axis.set_xlim(0, max(10, times[-1] * 1.02))
+        apply_velocity_ylim(self.axis, draw_velocities)
+
+        return (self.line,)
+
+    def run(self):
+        animation = FuncAnimation(
+            self.figure,
+            self.update,
+            interval=50,          # redraw every 50 ms
+            cache_frame_data=False,
         )
-    else:
-        span = data_max - data_min
 
-        if span <= 0:
-            span = max(abs(data_max), Y_AXIS_MIN_TOP)
+        self.figure.tight_layout()
+        plt.show()
 
-        bottom = data_min - 0.05 * span
-        top = data_max + 0.05 * span
-
-    axis.set_ylim(bottom, top)
+        # Keeps the animation alive until the window closes.
+        del animation
 
 
-def update_live_plot(_):
-    """Read available samples and update the velocity graph."""
+def run_live_mode(ser):
+    print("Close the graph to stop.")
+    LivePlot(ser).run()
 
-    global first_timestamp
 
-    while ser.in_waiting:
-        sample = read_sample()
+# -----------------------------------------------------------------------------
+# Export mode
+# -----------------------------------------------------------------------------
+
+def run_export_mode(ser):
+    """Record for RECORDING_SECONDS, then write a CSV and a graph."""
+    times = []
+    velocities = []
+    pressures = []
+
+    first_timestamp = None
+    start_time = time.time()
+
+    print(f"Recording for {RECORDING_SECONDS} seconds...")
+
+    while time.time() - start_time < RECORDING_SECONDS:
+        sample = read_sample(ser)
 
         if sample is None:
             continue
@@ -167,312 +234,79 @@ def update_live_plot(_):
         if first_timestamp is None:
             first_timestamp = timestamp
 
-        time_s = (
-            timestamp - first_timestamp
-        ) / 1000.0
-
-        times.append(time_s)
+        times.append((timestamp - first_timestamp) / 1000.0)
         velocities.append(velocity)
         pressures.append(pressure)
 
-        print(
-            f"{timestamp},"
-            f"{velocity:.4f},"
-            f"{pressure:.4f}"
-        )
+        print_sample(timestamp, velocity, pressure)
 
-    if times:
-        plot_times = list(times)
-        plot_velocities = list(velocities)
-
-        if FILTER_MODE:
-            plot_velocities = fourier_filter(
-                plot_times,
-                plot_velocities,
-            )
-
-        # Decimate for drawing only; the stored data is untouched.
-        if len(plot_times) > LIVE_MAX_DRAW_POINTS:
-            stride = (
-                len(plot_times) // LIVE_MAX_DRAW_POINTS
-            ) + 1
-            draw_times = plot_times[::stride]
-            draw_velocities = plot_velocities[::stride]
-        else:
-            draw_times = plot_times
-            draw_velocities = plot_velocities
-
-        velocity_line.set_data(
-            draw_times,
-            draw_velocities,
-        )
-
-        # Always anchored at 0 s; the right edge grows with the run.
-        x_max = max(
-            LIVE_INITIAL_X_SECONDS,
-            plot_times[-1] * 1.02,
-        )
-
-        velocity_ax.set_xlim(0, x_max)
-
-        apply_velocity_ylim(
-            velocity_ax,
-            draw_velocities,
-        )
-
-    return (velocity_line,)
+    save_data(times, velocities, pressures)
 
 
-def run_live_mode():
-    """Continuously display fluid velocity."""
-
-    global fig
-    global velocity_ax
-    global velocity_line
-
-    fig, velocity_ax = plt.subplots(
-        figsize=(10, 5),
-    )
-
-    velocity_line, = velocity_ax.plot(
-        [],
-        [],
-        linewidth=1.5,
-        color="tab:blue",
-    )
-
-    velocity_ax.set_ylabel(
-        "Fluid Velocity (m/s)"
-    )
-    velocity_ax.set_xlabel("Time (s)")
-
-    velocity_ax.grid(alpha=0.2)
-
-    velocity_ax.set_xlim(0, LIVE_INITIAL_X_SECONDS)
-
-    if Y_AXIS_START_AT_ZERO:
-        velocity_ax.set_ylim(0, Y_AXIS_MIN_TOP)
-
-    if FILTER_MODE:
-        fig.suptitle(
-            "Live Fluid Velocity "
-            f"— {FILTER_CUTOFF_HZ} Hz Cutoff"
-        )
-    else:
-        fig.suptitle(
-            "Live Fluid Velocity"
-        )
-
-    animation = FuncAnimation(
-        fig,
-        update_live_plot,
-        interval=50,
-        cache_frame_data=False,
-    )
-
-    print(
-        "Mode: live filtered"
-        if FILTER_MODE
-        else "Mode: live unfiltered"
-    )
-    print("Close the graph to stop.")
-
-    fig.tight_layout()
-    plt.show()
-
-
-def run_export_mode():
-    """Record velocity and pressure data."""
-
-    recorded_times = []
-    recorded_velocities = []
-    recorded_pressures = []
-
-    first_sample_timestamp = None
-    start_time = time.time()
-
-    print(
-        "Mode: export filtered"
-        if FILTER_MODE
-        else "Mode: export unfiltered"
-    )
-    print(
-        f"Recording for "
-        f"{RECORDING_SECONDS} seconds..."
-    )
-
-    while time.time() - start_time < RECORDING_SECONDS:
-        sample = read_sample()
-
-        if sample is None:
-            continue
-
-        timestamp, velocity, pressure = sample
-
-        if first_sample_timestamp is None:
-            first_sample_timestamp = timestamp
-
-        time_s = (
-            timestamp - first_sample_timestamp
-        ) / 1000.0
-
-        recorded_times.append(time_s)
-        recorded_velocities.append(velocity)
-        recorded_pressures.append(pressure)
-
-        print(
-            f"{timestamp},"
-            f"{velocity:.4f},"
-            f"{pressure:.4f}"
-        )
-
-    save_data(
-        recorded_times,
-        recorded_velocities,
-        recorded_pressures,
-    )
-
-
-def save_data(
-    recorded_times,
-    recorded_velocities,
-    recorded_pressures,
-):
-    """Save raw data and the velocity graph."""
-
-    if not recorded_times:
+def save_data(times, velocities, pressures):
+    """Write the raw CSV and the velocity graph."""
+    if not times:
         print("No valid sensor data was recorded.")
         return
 
-    os.makedirs(
-        DATA_DIRECTORY,
-        exist_ok=True,
-    )
+    os.makedirs(DATA_DIRECTORY, exist_ok=True)
 
-    run_name = datetime.now().strftime(
-        "sensor_%Y%m%d_%H%M%S"
-    )
-    base_path = os.path.join(
-        DATA_DIRECTORY,
-        run_name,
-    )
+    run_name = datetime.now().strftime("sensor_%Y%m%d_%H%M%S")
+    base_path = os.path.join(DATA_DIRECTORY, run_name)
+    csv_path = base_path + ".csv"
 
-    # Pressure is still recorded, just not graphed.
-    with open(
-        base_path + ".csv",
-        "w",
-        newline="",
-    ) as csv_file:
+    # Pressure is recorded but not graphed.
+    with open(csv_path, "w", newline="") as csv_file:
         writer = csv.writer(csv_file)
-
-        writer.writerow([
-            "time_s",
-            "velocity_m_s",
-            "pressure_kpa",
-        ])
-
-        writer.writerows(zip(
-            recorded_times,
-            recorded_velocities,
-            recorded_pressures,
-        ))
-
-    plot_velocities = recorded_velocities
-    graph_path = base_path + ".png"
+        writer.writerow(["time_s", "velocity_m_s", "pressure_kpa"])
+        writer.writerows(zip(times, velocities, pressures))
 
     if FILTER_MODE:
-        plot_velocities = fourier_filter(
-            recorded_times,
-            recorded_velocities,
-        )
-
-        graph_path = (
-            base_path + "_filtered.png"
-        )
-
-    if Y_AXIS_START_AT_ZERO and min(plot_velocities) < 0:
-        print(
-            "Warning: negative velocities present "
-            f"(min {min(plot_velocities):.4f} m/s). "
-            "They fall below the 0 m/s axis limit. "
-            "Set Y_AXIS_START_AT_ZERO = False to see them."
-        )
-
-    fig, velocity_ax = plt.subplots(
-        figsize=(10, 5),
-    )
-
-    velocity_ax.plot(
-        recorded_times,
-        plot_velocities,
-        linewidth=1.5,
-        color="tab:blue",
-    )
-
-    velocity_ax.set_ylabel(
-        "Fluid Velocity (m/s)"
-    )
-    velocity_ax.set_xlabel("Time (s)")
-
-    velocity_ax.grid(alpha=0.2)
-    velocity_ax.margins(x=0.02)
-
-    apply_velocity_ylim(
-        velocity_ax,
-        plot_velocities,
-    )
-
-    if FILTER_MODE:
-        fig.suptitle(
-            "Filtered Fluid Velocity "
-            f"— {FILTER_CUTOFF_HZ} Hz Cutoff"
-        )
+        plot_velocities = fourier_filter(times, velocities)
+        graph_path = base_path + "_filtered.png"
+        title = f"Filtered Fluid Velocity{filter_suffix()}"
     else:
-        fig.suptitle(
-            "Fluid Velocity "
-            f"— {RECORDING_SECONDS} Second Recording"
-        )
+        plot_velocities = np.asarray(velocities, dtype=float)
+        graph_path = base_path + ".png"
+        title = f"Fluid Velocity — {RECORDING_SECONDS} Second Recording"
 
-    fig.tight_layout()
+    figure, axis = plt.subplots(figsize=(10, 5))
+    axis.plot(times, plot_velocities, linewidth=1.5, color="tab:blue")
 
-    fig.savefig(
-        graph_path,
-        dpi=300,
-        bbox_inches="tight",
-    )
+    style_velocity_axis(axis)
+    axis.margins(x=0.02)
+    apply_velocity_ylim(axis, plot_velocities)
 
-    plt.close(fig)
+    figure.suptitle(title)
+    figure.tight_layout()
+    figure.savefig(graph_path, dpi=300, bbox_inches="tight")
+    plt.close(figure)
 
-    print(f"Raw CSV saved: {base_path}.csv")
+    print(f"Raw CSV saved: {csv_path}")
     print(f"Graph saved:   {graph_path}")
 
 
+# -----------------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------------
+
 def main():
-    global ser
+    # Validated before opening the port so a typo fails instantly.
+    if MODE not in ("live", "export"):
+        print(f'Invalid MODE: "{MODE}". Use "live" or "export".')
+        return
 
-    ser = serial.Serial(
-        PORT,
-        BAUD,
-        timeout=0.1,
-    )
+    print(f"Mode: {MODE} {'filtered' if FILTER_MODE else 'unfiltered'}")
 
-    # Opening the serial port resets many ESP32 boards.
-    time.sleep(2)
-    ser.reset_input_buffer()
+    with serial.Serial(PORT, BAUD, timeout=0.1) as ser:
+        # Opening the serial port resets many ESP32 boards.
+        time.sleep(2)
+        ser.reset_input_buffer()
 
-    try:
         if MODE == "live":
-            run_live_mode()
-        elif MODE == "export":
-            run_export_mode()
+            run_live_mode(ser)
         else:
-            print(f'Invalid MODE: "{MODE}"')
-            print(
-                'Use MODE = "live" or '
-                'MODE = "export".'
-            )
-    finally:
-        ser.close()
+            run_export_mode(ser)
 
 
 if __name__ == "__main__":
