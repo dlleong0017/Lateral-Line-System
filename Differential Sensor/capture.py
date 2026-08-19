@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Live-plot or record 8 channels of differential pressure from a serial sensor array.
+
+Serial line format (one sample per line):
+    timestamp_ms,p0,p1,p2,p3,p4,p5,p6,p7
+"""
 
 import csv
 import os
@@ -12,43 +17,33 @@ import serial
 from matplotlib.animation import FuncAnimation
 
 
-# =========================
 # Configuration
-# =========================
+# =============================================================================
 
-MODE = "export"              # "live" or "export"
-FILTER_MODE = False           # True = filtered, False = unfiltered
+MODE = "export"                # "live" or "export"
+
+FILTER_MODE = False             # low-pass the pressure traces
+FILTER_CUTOFF_HZ = 5.0          # discard content above this frequency
+
+RECORDING_SECONDS = 5           # export mode only
+DATA_DIRECTORY = "Data"         # export mode only
 
 PORT = "COM4"
 BAUD = 115200
 CHANNELS = 8
 
-PLOT_WINDOW_SECONDS = 10
-RECORDING_SECONDS = 5
-DATA_DIRECTORY = "Data"
-
-FILTER_CUTOFF_HZ = 5.0       # Remove frequencies above this value
+# =============================================================================
 
 
-# Shared live-plot variables
-ser = None
-fig = None
-ax = None
-lines = []
+# -----------------------------------------------------------------------------
+# Serial input
+# -----------------------------------------------------------------------------
 
-times = deque()
-pressures = [deque() for _ in range(CHANNELS)]
-first_timestamp = None
-
-
-def read_sample():
-    """Read and parse one ESP32 sample."""
-
+def read_sample(ser):
+    """Return (timestamp_ms, [p0..p7]), or None for a bad line."""
     text = ser.readline().decode("ascii", errors="ignore").strip()
     parts = text.split(",")
 
-    # Expected:
-    # timestamp,p0,p1,p2,p3,p4,p5,p6,p7
     if len(parts) != CHANNELS + 1:
         return None
 
@@ -56,55 +51,185 @@ def read_sample():
         timestamp = int(parts[0])
         values = [float(value) for value in parts[1:]]
     except ValueError:
+        # Column headers and partial lines land here.
         return None
 
     return timestamp, values
 
 
-def fourier_filter(recorded_times, recorded_pressures):
-    """Remove frequencies above the configured cutoff frequency."""
+def print_sample(timestamp, values):
+    print(timestamp, *values)
 
-    if len(recorded_times) < 2:
-        return recorded_pressures
 
-    time_differences = np.diff(recorded_times)
-    valid_differences = time_differences[time_differences > 0]
+# -----------------------------------------------------------------------------
+# Signal processing
+# -----------------------------------------------------------------------------
 
-    if len(valid_differences) == 0:
-        return recorded_pressures
+def fourier_filter(times, channel_values):
+    """Zero out frequency content above FILTER_CUTOFF_HZ, per channel."""
+    if len(times) < 2:
+        return channel_values
 
-    sample_period = np.median(valid_differences)
-    filtered_pressures = []
+    intervals = np.diff(times)
+    intervals = intervals[intervals > 0]
 
-    for pressure_data in recorded_pressures:
-        pressure_array = np.asarray(pressure_data)
+    if intervals.size == 0:
+        return channel_values
 
-        frequency_data = np.fft.rfft(pressure_array)
+    sample_period = float(np.median(intervals))
+    filtered = []
 
-        frequencies = np.fft.rfftfreq(
-            len(pressure_array),
-            d=sample_period,
+    for values in channel_values:
+        values = np.asarray(values, dtype=float)
+
+        spectrum = np.fft.rfft(values)
+        frequencies = np.fft.rfftfreq(values.size, d=sample_period)
+        spectrum[frequencies > FILTER_CUTOFF_HZ] = 0
+
+        filtered.append(np.fft.irfft(spectrum, n=values.size))
+
+    return filtered
+
+
+# -----------------------------------------------------------------------------
+# Plot helpers
+# -----------------------------------------------------------------------------
+
+def style_pressure_axis(axis):
+    axis.set_xlabel("Time (s)")
+    axis.set_ylabel("Pressure (kPa)")
+    axis.grid(alpha=0.2)
+
+
+def add_channel_legend(axis):
+    axis.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.14),
+        ncol=CHANNELS,
+        frameon=False,
+        handlelength=0.8,
+        handletextpad=0.4,
+        columnspacing=0.9,
+    )
+
+
+def filter_suffix():
+    return f" — {FILTER_CUTOFF_HZ} Hz Cutoff" if FILTER_MODE else ""
+
+
+# -----------------------------------------------------------------------------
+# Live mode
+# -----------------------------------------------------------------------------
+
+class LivePlot:
+    """Streams samples from the serial port into a scrolling multi-channel graph."""
+
+    def __init__(self, ser):
+        self.ser = ser
+        self.first_timestamp = None
+
+        self.times = deque()
+        self.channels = [deque() for _ in range(CHANNELS)]
+
+        self.figure, self.axis = plt.subplots(figsize=(11, 5))
+        self.lines = [
+            self.axis.plot([], [], label=f"ch{i}")[0]
+            for i in range(CHANNELS)
+        ]
+
+        style_pressure_axis(self.axis)
+        add_channel_legend(self.axis)
+
+        self.figure.suptitle(f"Live Pressure Sensor Data{filter_suffix()}")
+
+    def drain_serial(self):
+        """Consume every sample currently waiting in the input buffer."""
+        while self.ser.in_waiting:
+            sample = read_sample(self.ser)
+
+            if sample is None:
+                continue
+
+            timestamp, values = sample
+
+            if self.first_timestamp is None:
+                self.first_timestamp = timestamp
+
+            time_s = (timestamp - self.first_timestamp) / 1000.0
+            self.times.append(time_s)
+
+            for channel, value in zip(self.channels, values):
+                channel.append(value)
+
+            print_sample(timestamp, values)
+
+            # Keep only the configured live window.
+            while self.times and time_s - self.times[0] > 10:
+                self.times.popleft()
+
+                for channel in self.channels:
+                    channel.popleft()
+
+    def update(self, _frame):
+        self.drain_serial()
+
+        if not self.times:
+            return self.lines
+
+        times = list(self.times)
+        values = [list(channel) for channel in self.channels]
+
+        if FILTER_MODE:
+            values = fourier_filter(times, values)
+
+        for line, channel_values in zip(self.lines, values):
+            line.set_data(times, channel_values)
+
+        self.axis.set_xlim(
+            max(0, times[-1] - 10),
+            max(10, times[-1]),
+        )
+        self.axis.relim()
+        self.axis.autoscale_view(scalex=False)
+
+        return self.lines
+
+    def run(self):
+        animation = FuncAnimation(
+            self.figure,
+            self.update,
+            interval=50,           # redraw every 50 ms
+            cache_frame_data=False,
         )
 
-        frequency_data[frequencies > FILTER_CUTOFF_HZ] = 0
+        self.figure.tight_layout()
+        plt.show()
 
-        filtered_signal = np.fft.irfft(
-            frequency_data,
-            n=len(pressure_array),
-        )
-
-        filtered_pressures.append(filtered_signal)
-
-    return filtered_pressures
+        # Keeps the animation alive until the window closes.
+        del animation
 
 
-def update_live_plot(_):
-    """Read available samples and update the live graph."""
+def run_live_mode(ser):
+    print("Close the graph to stop.")
+    LivePlot(ser).run()
 
-    global first_timestamp
 
-    while ser.in_waiting:
-        sample = read_sample()
+# -----------------------------------------------------------------------------
+# Export mode
+# -----------------------------------------------------------------------------
+
+def run_export_mode(ser):
+    """Record for RECORDING_SECONDS, then write a CSV and a graph."""
+    times = []
+    channels = [[] for _ in range(CHANNELS)]
+
+    first_timestamp = None
+    start_time = time.time()
+
+    print(f"Recording for {RECORDING_SECONDS} seconds...")
+
+    while time.time() - start_time < RECORDING_SECONDS:
+        sample = read_sample(ser)
 
         if sample is None:
             continue
@@ -114,148 +239,22 @@ def update_live_plot(_):
         if first_timestamp is None:
             first_timestamp = timestamp
 
-        time_s = (timestamp - first_timestamp) / 1000.0
+        times.append((timestamp - first_timestamp) / 1000.0)
 
-        times.append(time_s)
-
-        for channel, value in zip(pressures, values):
+        for channel, value in zip(channels, values):
             channel.append(value)
 
-        print(timestamp, *values)
-
-        # Keep only the configured live window.
-        while times and time_s - times[0] > PLOT_WINDOW_SECONDS:
-            times.popleft()
-
-            for channel in pressures:
-                channel.popleft()
-
-    if times:
-        plot_times = list(times)
-        plot_pressures = [list(channel) for channel in pressures]
-
-        if FILTER_MODE:
-            plot_pressures = fourier_filter(
-                plot_times,
-                plot_pressures,
-            )
-
-        for line, channel in zip(lines, plot_pressures):
-            line.set_data(plot_times, channel)
-
-        ax.set_xlim(
-            max(0, plot_times[-1] - PLOT_WINDOW_SECONDS),
-            max(PLOT_WINDOW_SECONDS, plot_times[-1]),
-        )
-
-        ax.relim()
-        ax.autoscale_view(scalex=False)
-
-    return lines
-
-
-def run_live_mode():
-    """Continuously display live sensor data."""
-
-    global fig, ax, lines
-
-    fig, ax = plt.subplots(figsize=(11, 5))
-
-    lines = [
-        ax.plot([], [], label=f"ch{i}")[0]
-        for i in range(CHANNELS)
-    ]
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Pressure (kPa)")
+        print_sample(timestamp, values)
 
     if FILTER_MODE:
-        ax.set_title(
-            f"Live Filtered Pressure Data — "
-            f"{FILTER_CUTOFF_HZ} Hz Cutoff"
-        )
-    else:
-        ax.set_title("Live Pressure Sensor Data")
+        channels = fourier_filter(times, channels)
 
-    ax.grid(alpha=0.2)
-
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.14),
-        ncol=8,
-        frameon=False,
-        handlelength=0.8,
-        handletextpad=0.4,
-        columnspacing=0.9,
-    )
-
-    animation = FuncAnimation(
-        fig,
-        update_live_plot,
-        interval=50,
-        cache_frame_data=False,
-    )
-
-    if FILTER_MODE:
-        print("Mode: live filtered")
-    else:
-        print("Mode: live unfiltered")
-
-    print("Close the graph to stop.")
-
-    fig.tight_layout()
-    plt.show()
+    save_data(times, channels)
 
 
-def run_export_mode():
-    """Record data and save it as a CSV and graph."""
-
-    recorded_times = []
-    recorded_pressures = [[] for _ in range(CHANNELS)]
-
-    first_sample_timestamp = None
-    start_time = time.time()
-
-    if FILTER_MODE:
-        print("Mode: export filtered")
-    else:
-        print("Mode: export unfiltered")
-
-    print(f"Recording for {RECORDING_SECONDS} seconds...")
-
-    while time.time() - start_time < RECORDING_SECONDS:
-        sample = read_sample()
-
-        if sample is None:
-            continue
-
-        timestamp, values = sample
-
-        if first_sample_timestamp is None:
-            first_sample_timestamp = timestamp
-
-        time_s = (timestamp - first_sample_timestamp) / 1000.0
-
-        recorded_times.append(time_s)
-
-        for channel, value in zip(recorded_pressures, values):
-            channel.append(value)
-
-        print(timestamp, *values)
-
-    if FILTER_MODE:
-        recorded_pressures = fourier_filter(
-            recorded_times,
-            recorded_pressures,
-        )
-
-    save_data(recorded_times, recorded_pressures)
-
-
-def save_data(recorded_times, recorded_pressures):
-    """Save recorded sensor data as a CSV and PNG graph."""
-
-    if not recorded_times:
+def save_data(times, channels):
+    """Write the CSV and the pressure graph for all channels."""
+    if not times:
         print("No valid sensor data was recorded.")
         return
 
@@ -267,88 +266,58 @@ def save_data(recorded_times, recorded_pressures):
         run_name += "_filtered"
 
     base_path = os.path.join(DATA_DIRECTORY, run_name)
+    csv_path = base_path + ".csv"
+    graph_path = base_path + ".png"
 
-    # Save the selected data type to CSV.
-    with open(base_path + ".csv", "w", newline="") as csv_file:
+    with open(csv_path, "w", newline="") as csv_file:
         writer = csv.writer(csv_file)
+        writer.writerow(["time_s"] + [f"ch{i}_kPa" for i in range(CHANNELS)])
+        writer.writerows(zip(times, *channels))
 
-        writer.writerow(
-            ["time_s"] +
-            [f"ch{i}_kPa" for i in range(CHANNELS)]
-        )
+    figure, axis = plt.subplots(figsize=(10, 5))
 
-        for sample in zip(recorded_times, *recorded_pressures):
-            writer.writerow(sample)
+    for index, channel_values in enumerate(channels):
+        axis.plot(times, channel_values, linewidth=1.5, label=f"ch{index}")
 
-    # Save the selected data type as a graph.
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    for channel, pressure_data in enumerate(recorded_pressures):
-        ax.plot(
-            recorded_times,
-            pressure_data,
-            linewidth=1.5,
-            label=f"ch{channel}",
-        )
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Pressure (kPa)")
+    style_pressure_axis(axis)
+    axis.margins(x=0.02)
+    add_channel_legend(axis)
 
     if FILTER_MODE:
-        ax.set_title(
-            f"Filtered Pressure Data — "
-            f"{FILTER_CUTOFF_HZ} Hz Cutoff"
-        )
+        title = f"Filtered Pressure Data{filter_suffix()}"
     else:
-        ax.set_title(
-            f"Pressure Data — "
-            f"{RECORDING_SECONDS} Second Recording"
-        )
+        title = f"Pressure Data — {RECORDING_SECONDS} Second Recording"
 
-    ax.grid(alpha=0.2)
-    ax.margins(x=0.02)
+    figure.suptitle(title)
+    figure.tight_layout()
+    figure.savefig(graph_path, dpi=300, bbox_inches="tight")
+    plt.close(figure)
 
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.14),
-        ncol=8,
-        frameon=False,
-        handlelength=0.8,
-        handletextpad=0.4,
-        columnspacing=0.9,
-    )
+    print(f"CSV saved:   {csv_path}")
+    print(f"Graph saved: {graph_path}")
 
-    fig.tight_layout()
-    fig.savefig(
-        base_path + ".png",
-        dpi=300,
-        bbox_inches="tight",
-    )
-    plt.close(fig)
 
-    print(f"CSV saved:   {base_path}.csv")
-    print(f"Graph saved: {base_path}.png")
-
+# -----------------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------------
 
 def main():
-    global ser
+    # Validated before opening the port so a typo fails instantly.
+    if MODE not in ("live", "export"):
+        print(f'Invalid MODE: "{MODE}". Use "live" or "export".')
+        return
 
-    ser = serial.Serial(PORT, BAUD, timeout=0.1)
+    print(f"Mode: {MODE} {'filtered' if FILTER_MODE else 'unfiltered'}")
 
-    # Opening the serial port can reset the ESP32.
-    time.sleep(2)
-    ser.reset_input_buffer()
+    with serial.Serial(PORT, BAUD, timeout=0.1) as ser:
+        # Opening the serial port can reset the ESP32.
+        time.sleep(2)
+        ser.reset_input_buffer()
 
-    try:
         if MODE == "live":
-            run_live_mode()
-        elif MODE == "export":
-            run_export_mode()
+            run_live_mode(ser)
         else:
-            print(f'Invalid MODE: "{MODE}"')
-            print('Use MODE = "live" or MODE = "export".')
-    finally:
-        ser.close()
+            run_export_mode(ser)
 
 
 if __name__ == "__main__":
