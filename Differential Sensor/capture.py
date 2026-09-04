@@ -25,8 +25,8 @@ MODE = "export"                # "live" or "export"
 FILTER_MODE = False             # low-pass the pressure traces
 FILTER_CUTOFF_HZ = 5.0          # discard content above this frequency
 
-RECORDING_SECONDS = 5           # export mode only
-DATA_DIRECTORY = "Data"         # export mode only
+RECORDING_SECONDS = 60           # export mode only
+DATA_DIRECTORY = "Data/9-4-2026 Testing"         # export mode only
 
 PORT = "COM4"
 BAUD = 115200
