@@ -13,6 +13,7 @@ from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import serial
 from matplotlib.animation import FuncAnimation
 
@@ -22,7 +23,10 @@ from matplotlib.animation import FuncAnimation
 
 MODE = "export"                # "live" or "export"
 
-FILTER_MODE = False             # low-pass the pressure traces
+FILTER_MODE = True             # low-pass the pressure traces
+FILTER_METHOD = "turbulence"    # Options: "turbulence", fourier
+
+TURBULENCE_WINDOW_SEC = 2.5     # Rolling window in seconds for turbulence intensity
 FILTER_CUTOFF_HZ = 5.0          # discard content above this frequency
 
 RECORDING_SECONDS = 60           # export mode only
@@ -65,7 +69,7 @@ def print_sample(timestamp, values):
 # Signal processing
 # -----------------------------------------------------------------------------
 
-def fourier_filter(times, channel_values):
+def fourier_filter(times, channel_values, cutoff = FILTER_CUTOFF_HZ):
     """Zero out frequency content above FILTER_CUTOFF_HZ, per channel."""
     if len(times) < 2:
         return channel_values
@@ -84,11 +88,44 @@ def fourier_filter(times, channel_values):
 
         spectrum = np.fft.rfft(values)
         frequencies = np.fft.rfftfreq(values.size, d=sample_period)
-        spectrum[frequencies > FILTER_CUTOFF_HZ] = 0
+        spectrum[frequencies > cutoff] = 0
 
         filtered.append(np.fft.irfft(spectrum, n=values.size))
 
     return filtered
+
+def rolling_turbulence_intensity(times, channel_values, window_seconds=TURBULENCE_WINDOW_SEC):
+    """Calculates the rolling standard deviation (RMS pressure fluctuation) per channel."""
+    if len(times) < 2:
+        return channel_values
+
+    dt = float(np.median(np.diff(times)))
+    if dt <= 0:
+        return channel_values
+
+    window_samples = int(round(window_seconds / dt))
+    window_samples = max(2, window_samples)  
+
+    turbulence_signals = []
+    for values in channel_values:
+        series = pd.Series(values)
+        rolling_std = series.rolling(window=window_samples, min_periods=1).std().values
+        
+        rolling_std[np.isnan(rolling_std)] = 0.0
+        turbulence_signals.append(rolling_std)
+
+    return turbulence_signals
+
+def apply_selected_filter(times, channel_values):
+    """Routes channel data to the selected filtering technique."""
+    if not FILTER_MODE or len(times) < 2:
+        return channel_values
+
+    if FILTER_METHOD == "turbulence":
+        return rolling_turbulence_intensity(times, channel_values)
+
+    if FILTER_METHOD == "fourier":
+        return fourier_filter(times, channel_values)
 
 
 # -----------------------------------------------------------------------------
@@ -114,7 +151,12 @@ def add_channel_legend(axis):
 
 
 def filter_suffix():
-    return f" — {FILTER_CUTOFF_HZ} Hz Cutoff" if FILTER_MODE else ""
+    if not FILTER_MODE:
+        return ""
+    if FILTER_METHOD == "turbulence":
+        return f" — Turbulence Intensity ({TURBULENCE_WINDOW_SEC}s Window)"
+    elif FILTER_METHOD == "fourier":
+        return f" — {FILTER_CUTOFF_HZ} Hz Cutoff" if FILTER_MODE else ""
 
 
 # -----------------------------------------------------------------------------
@@ -180,7 +222,7 @@ class LivePlot:
         values = [list(channel) for channel in self.channels]
 
         if FILTER_MODE:
-            values = fourier_filter(times, values)
+            values = apply_selected_filter(times, values)
 
         for line, channel_values in zip(self.lines, values):
             line.set_data(times, channel_values)
@@ -247,7 +289,7 @@ def run_export_mode(ser):
         print_sample(timestamp, values)
 
     if FILTER_MODE:
-        channels = fourier_filter(times, channels)
+        channels = apply_selected_filter(times, channels)
 
     save_data(times, channels)
 
@@ -263,7 +305,7 @@ def save_data(times, channels):
     run_name = datetime.now().strftime("pressure_%Y%m%d_%H%M%S")
 
     if FILTER_MODE:
-        run_name += "_filtered"
+        run_name += f"_{FILTER_METHOD}"
 
     base_path = os.path.join(DATA_DIRECTORY, run_name)
     csv_path = base_path + ".csv"
@@ -271,6 +313,7 @@ def save_data(times, channels):
 
     with open(csv_path, "w", newline="") as csv_file:
         writer = csv.writer(csv_file)
+        unit_header = "std_kPa" if (FILTER_MODE and FILTER_METHOD == "turbulence") else "kPa"
         writer.writerow(["time_s"] + [f"ch{i}_kPa" for i in range(CHANNELS)])
         writer.writerows(zip(times, *channels))
 
