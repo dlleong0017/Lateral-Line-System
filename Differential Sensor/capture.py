@@ -28,7 +28,7 @@ FILTER_CUTOFF_HZ = 5.0          # discard content above this frequency
 RECORDING_SECONDS = 60           # export mode only
 DATA_DIRECTORY = "Data/9-4-2026 Testing"         # export mode only
 
-PORT = "COM4"
+PORT = "COM13"
 BAUD = 115200
 CHANNELS = 8
 
