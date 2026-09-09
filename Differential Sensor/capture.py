@@ -23,16 +23,16 @@ from matplotlib.animation import FuncAnimation
 
 MODE = "export"                # "live" or "export"
 
-FILTER_MODE = True             # low-pass the pressure traces
+FILTER_MODE = False             # low-pass the pressure traces
 FILTER_METHOD = "turbulence"    # Options: "turbulence", fourier
 
 TURBULENCE_WINDOW_SEC = 2.5     # Rolling window in seconds for turbulence intensity
 FILTER_CUTOFF_HZ = 5.0          # discard content above this frequency
 
-RECORDING_SECONDS = 60           # export mode only
-DATA_DIRECTORY = "Data/9-4-2026 Testing"         # export mode only
+RECORDING_SECONDS = 30           # export mode only
+DATA_DIRECTORY = "Data/9-9-2026Testing"         # export mode only
 
-PORT = "COM13"
+PORT = "COM4"
 BAUD = 115200
 CHANNELS = 8
 
