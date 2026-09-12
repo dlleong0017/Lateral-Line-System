@@ -17,7 +17,7 @@ import pandas as pd
 # Signal Processing Methods
 # -----------------------------------------------------------------------------
 
-def apply_fourier(times, channel_values, cutoff_hz=1.5):
+def apply_fourier(times, channel_values, low_cutoff_hz=0.5, high_cutoff_hz=1.5):
     """Applies a Fourier Transform (FFT) low-pass filter with smooth windowing."""
     if len(times) < 2:
         return channel_values
@@ -31,14 +31,24 @@ def apply_fourier(times, channel_values, cutoff_hz=1.5):
 
     # Cosine-tapered frequency mask to attenuate high frequencies smoothly
     freq_mask = np.ones_like(frequencies)
-    transition_width = cutoff_hz * 0.25
+
+    low_transition = low_cutoff_hz * 0.25
+    high_transition = high_cutoff_hz * 0.25
 
     for idx, f in enumerate(frequencies):
-        if f > cutoff_hz + transition_width:
-            freq_mask[idx] = 0.0
-        elif f > cutoff_hz - transition_width:
-            progress = (f - (cutoff_hz - transition_width)) / (2 * transition_width)
-            freq_mask[idx] = 0.5 * (1.0 + np.cos(np.pi * progress))
+            # 1. High-pass side (cut off frequencies that are too low)
+            if f < low_cutoff_hz - low_transition:
+                freq_mask[idx] = 0.0
+            elif f < low_cutoff_hz + low_transition:
+                progress = (f - (low_cutoff_hz - low_transition)) / (2 * low_transition)
+                freq_mask[idx] = 0.5 * (1.0 - np.cos(np.pi * progress))
+
+            # 2. Low-pass side (cut off frequencies that are too high)
+            elif f > high_cutoff_hz + high_transition:
+                freq_mask[idx] = 0.0
+            elif f > high_cutoff_hz - high_transition:
+                progress = (f - (high_cutoff_hz - high_transition)) / (2 * high_transition)
+                freq_mask[idx] = 0.5 * (1.0 + np.cos(np.pi * progress))
 
     filtered = []
     for values in channel_values:
@@ -117,7 +127,7 @@ def apply_savgol(channel_values, window_length=21, polyorder=2):
 # Main Processing & Visualizer
 # -----------------------------------------------------------------------------
 
-def process_file(csv_filepath, method="turbulence", param=None, save_output=True, show_plot=True):
+def process_file(csv_filepath, method="turbulence", param=None, low_cutoff=0.5, high_cutoff=1.5, save_output=True, show_plot=True):
     if not os.path.exists(csv_filepath):
         print(f"Error: File '{csv_filepath}' not found.")
         return
@@ -131,7 +141,13 @@ def process_file(csv_filepath, method="turbulence", param=None, save_output=True
     raw_channels = [df[col].values for col in channel_cols]
 
     # 2. Apply selected filtering method
-    if method == "turbulence":
+    if method == "fourier":
+        filtered_channels = apply_fourier(times, raw_channels, low_cutoff_hz=low_cutoff, high_cutoff_hz=high_cutoff)
+        y_label = "Pressure (kPa)"
+        title_suffix = f"Fourier Bandpass ({low_cutoff}–{high_cutoff} Hz)"
+        file_suffix = f"fourier_{low_cutoff}to{high_cutoff}hz"
+
+    elif method == "turbulence":
         window_sec = float(param) if param is not None else 2.5
         filtered_channels = apply_turbulence_intensity(times, raw_channels, window_seconds=window_sec)
         y_label = "Std Dev (kPa)"
@@ -208,10 +224,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Apply signal filtering to a pressure sensor CSV file.")
     parser.add_argument("file", type=str, help="Path to input CSV file")
     parser.add_argument("--method", type=str, default="turbulence", 
-                        choices=["turbulence", "butterworth", "ema", "savgol"], 
+                        choices=["fourier", "turbulence", "butterworth", "ema", "savgol"], 
                         help="Filtering method (default: turbulence)")
     parser.add_argument("--param", type=float, default=None, 
-                        help="Parameter value (window seconds for turbulence, cutoff Hz for butterworth, alpha for ema, win length for savgol)")
+                        help="Parameter value for single-value filters (window sec for turbulence, cutoff Hz for butterworth, alpha for ema, win length for savgol)")
+    parser.add_argument("--low", type=float, default=0.5, 
+                        help="Low cutoff frequency in Hz for Fourier bandpass (default: 0.5)")
+    parser.add_argument("--high", type=float, default=1.5, 
+                        help="High cutoff frequency in Hz for Fourier bandpass (default: 1.5)")
 
     args = parser.parse_args()
-    process_file(args.file, method=args.method, param=args.param)
+    process_file(args.file, method=args.method, param=args.param, low_cutoff=args.low, high_cutoff=args.high)
