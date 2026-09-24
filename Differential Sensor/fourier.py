@@ -36,8 +36,11 @@ def analyze_csv_fft(csv_file_path):
     for i, col in enumerate(channel_cols):
         signal = df[col].values
 
+        # Subtract the mean (DC component) from the signal
+        signal_detrended = signal - np.mean(signal)
+
         # Compute Real FFT (rfft) for real-valued signals
-        fft_spectrum = np.fft.rfft(signal)
+        fft_spectrum = np.fft.rfft(signal_detrended)
         
         # Calculate Magnitude Spectrum (scaled by number of samples N)
         magnitude = np.abs(fft_spectrum) * (2.0 / N)
