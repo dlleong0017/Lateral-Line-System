@@ -192,7 +192,7 @@ def analyze_csv_psd(csv_file_path):
     axes[-1, 1].set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
 
     # Overall Figure Title
-    fig.suptitle('Time Domain Signals & Power Spectral Density', fontsize=14, fontweight='bold')
+    fig.suptitle('Power Spectral Density, verified sine data', fontsize=14, fontweight='bold')
 
     plt.show()
 
@@ -259,7 +259,7 @@ if __name__ == '__main__':
     csv_filename = SCRIPT_DIR / 'Data' / 'VerifiedTesting' / 'multi_sine_data.csv'
 
     # analyze_csv_fft(csv_filename)          # fourier rows
-    # analyze_csv_psd(csv_filename)          # power spectial rows
+    analyze_csv_psd(csv_filename)          # power spectial rows
 
-    analyze_csv_fft_overlaid(csv_filename)          # fourier combined
+    # analyze_csv_fft_overlaid(csv_filename)          # fourier combined
     # analyze_csv_psd_overlaid(csv_filename)          # power spectral combined
