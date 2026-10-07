@@ -130,7 +130,7 @@ def analyze_csv_fft_overlaid(csv_file_path):
     axes[1].legend(loc='upper right', fontsize=8)
 
     # Overall Figure Title
-    fig.suptitle('Fourier Transform, with cylinder 2nd peg', fontsize=14, fontweight='bold')
+    fig.suptitle('Fourier Transform, verified sine data', fontsize=14, fontweight='bold')
 
     plt.show()
 
@@ -249,17 +249,17 @@ def analyze_csv_psd_overlaid(csv_file_path):
     axes[1].legend(loc='upper right', fontsize=8)
 
     # Overall Figure Title
-    fig.suptitle('Power Spectral Density, with cylinder 2nd peg', fontsize=14, fontweight='bold')
+    fig.suptitle('Power Spectral Density, verified sine data', fontsize=14, fontweight='bold')
 
     plt.show()
 
 if __name__ == '__main__':
     # Robust path relative to script location
     SCRIPT_DIR = Path(__file__).resolve().parent
-    csv_filename = SCRIPT_DIR / 'Data' / '9-17-2026Testing' / '4.csv'
+    csv_filename = SCRIPT_DIR / 'Data' / 'VerifiedTesting' / 'multi_sine_data.csv'
 
     # analyze_csv_fft(csv_filename)          # fourier rows
     # analyze_csv_psd(csv_filename)          # power spectial rows
 
     analyze_csv_fft_overlaid(csv_filename)          # fourier combined
-    analyze_csv_psd_overlaid(csv_filename)          # power spectral combined
+    # analyze_csv_psd_overlaid(csv_filename)          # power spectral combined
