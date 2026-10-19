@@ -67,7 +67,7 @@ def analyze_csv_fft(csv_file_path):
     axes[-1, 1].set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
 
     # 4. Overall Figure Title at the top
-    fig.suptitle('Time Domain Signals & Fourier Transform Spectrums', fontsize=14, fontweight='bold')
+    fig.suptitle('Fourier Transform, with cylinder in tank', fontsize=14, fontweight='bold')
 
     plt.show()
 
@@ -192,7 +192,7 @@ def analyze_csv_psd(csv_file_path):
     axes[-1, 1].set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
 
     # Overall Figure Title
-    fig.suptitle('Power Spectral Density, verified sine data', fontsize=14, fontweight='bold')
+    fig.suptitle('Power Spectral Density, no cylinder in tank', fontsize=14, fontweight='bold')
 
     plt.show()
 
@@ -256,10 +256,10 @@ def analyze_csv_psd_overlaid(csv_file_path):
 if __name__ == '__main__':
     # Robust path relative to script location
     SCRIPT_DIR = Path(__file__).resolve().parent
-    csv_filename = SCRIPT_DIR / 'Data' / 'VerifiedTesting' / 'multi_sine_data.csv'
+    csv_filename = SCRIPT_DIR / 'Data' / '9-17-2026Testing' / '4.csv'
 
     # analyze_csv_fft(csv_filename)          # fourier rows
-    analyze_csv_psd(csv_filename)          # power spectial rows
+    # analyze_csv_psd(csv_filename)          # power spectial rows
 
     # analyze_csv_fft_overlaid(csv_filename)          # fourier combined
-    # analyze_csv_psd_overlaid(csv_filename)          # power spectral combined
+    analyze_csv_psd_overlaid(csv_filename)          # power spectral combined
