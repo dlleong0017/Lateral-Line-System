@@ -13,3 +13,7 @@ add cylinder
 8.  30 seconds, motor at 248, yes cylinder
 9.  30 seconds, motor at 349, yes cylinder
 10. 30 seconds, motor at 460, yes cylinder
+
+move cylinder closer
+
+11. 30 seconds, motor at 450, cylinder close to foil

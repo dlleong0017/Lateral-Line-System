@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import welch
 from pathlib import Path
 
-def analyze_csv_fft(csv_file_path):
+def analyze_csv_fft(csv_file_path, title='Fourier Transform'):
     # Load the CSV data
     df = pd.read_csv(csv_file_path)
 
@@ -66,12 +66,12 @@ def analyze_csv_fft(csv_file_path):
     axes[-1, 0].set_xlabel('Time (s)', fontsize=10, fontweight='bold')
     axes[-1, 1].set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
 
-    # 4. Overall Figure Title at the top
-    fig.suptitle('Fourier Transform, with cylinder in tank', fontsize=14, fontweight='bold')
+    # 4. Overall Figure Title at the top passed via parameter
+    fig.suptitle(title, fontsize=14, fontweight='bold')
 
     plt.show()
 
-def analyze_csv_fft_overlaid(csv_file_path):
+def analyze_csv_fft_overlaid(csv_file_path, title='Fourier Transform (Overlaid)'):
     # Load the CSV data
     df = pd.read_csv(csv_file_path)
 
@@ -130,11 +130,11 @@ def analyze_csv_fft_overlaid(csv_file_path):
     axes[1].legend(loc='upper right', fontsize=8)
 
     # Overall Figure Title
-    fig.suptitle('Fourier Transform, verified sine data', fontsize=14, fontweight='bold')
+    fig.suptitle(title, fontsize=14, fontweight='bold')
 
     plt.show()
 
-def analyze_csv_psd(csv_file_path):
+def analyze_csv_psd(csv_file_path, title='Power Spectral Density'):
     # Load the CSV data
     df = pd.read_csv(csv_file_path)
 
@@ -167,7 +167,6 @@ def analyze_csv_psd(csv_file_path):
         signal_detrended = signal - np.mean(signal)
 
         # Compute Power Spectral Density using Welch's method
-        # nperseg defines window length (defaults to 256, set relative to length)
         nperseg = min(len(signal), 1024)
         freqs, psd = welch(signal_detrended, fs=fs, nperseg=nperseg)
 
@@ -192,11 +191,11 @@ def analyze_csv_psd(csv_file_path):
     axes[-1, 1].set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
 
     # Overall Figure Title
-    fig.suptitle('Power Spectral Density, no cylinder in tank', fontsize=14, fontweight='bold')
+    fig.suptitle(title, fontsize=14, fontweight='bold')
 
     plt.show()
 
-def analyze_csv_psd_overlaid(csv_file_path):
+def analyze_csv_psd_overlaid(csv_file_path, title='Power Spectral Density (Overlaid)'):
     # Load the CSV data
     df = pd.read_csv(csv_file_path)
 
@@ -249,17 +248,24 @@ def analyze_csv_psd_overlaid(csv_file_path):
     axes[1].legend(loc='upper right', fontsize=8)
 
     # Overall Figure Title
-    fig.suptitle('Power Spectral Density, verified sine data', fontsize=14, fontweight='bold')
+    fig.suptitle(title, fontsize=14, fontweight='bold')
 
     plt.show()
 
 if __name__ == '__main__':
     # Robust path relative to script location
     SCRIPT_DIR = Path(__file__).resolve().parent
-    csv_filename = SCRIPT_DIR / 'Data' / '9-17-2026Testing' / '4.csv'
+    csv_filename = SCRIPT_DIR / 'Data' / 'VerifiedTesting' / 'noisy_vortex_shedding.csv'
 
-    # analyze_csv_fft(csv_filename)          # fourier rows
-    # analyze_csv_psd(csv_filename)          # power spectial rows
+    # Declare titles in the main section
+    fft_rows_title = 'FFT, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
+    psd_rows_title = 'PSD, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
+    fft_overlaid_title = 'FFT, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
+    psd_overlaid_title = 'PSD, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
 
-    # analyze_csv_fft_overlaid(csv_filename)          # fourier combined
-    analyze_csv_psd_overlaid(csv_filename)          # power spectral combined
+    # Pass the titles as arguments
+    analyze_csv_fft(csv_filename, title=fft_rows_title)
+    analyze_csv_psd(csv_filename, title=psd_rows_title)
+
+    analyze_csv_fft_overlaid(csv_filename, title=fft_overlaid_title)
+    analyze_csv_psd_overlaid(csv_filename, title=psd_overlaid_title)
