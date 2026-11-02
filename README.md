@@ -48,6 +48,7 @@ pip install pyserial matplotlib numpy
 ```
 
 Run the script:
+  I do this by clicking the run button in VS Code
 
 ```bash
 python capture.py
