@@ -30,11 +30,15 @@ TURBULENCE_WINDOW_SEC = 2.5     # Rolling window in seconds for turbulence inten
 FILTER_CUTOFF_HZ = 5.0          # discard content above this frequency
 
 RECORDING_SECONDS = 30           # export mode only
-DATA_DIRECTORY = "Data/10-19-2026Testing"         # export mode only
+DATA_DIRECTORY = "Data/11-2-2026Testing"         # export mode only
 
-PORT = "COM5"
-BAUD = 115200
+PORT = "COM4"
+BAUD = 921600                   # must match BAUD in main.cpp
 CHANNELS = 8
+
+PRINT_EVERY = 100               # print 1 in N samples to the console (0 = never);
+                                # printing every line can't keep up at 500 Hz
+LIVE_PLOT_MAX_POINTS = 2000     # points drawn per channel in live mode (keeps redraws fast)
 
 # =============================================================================
 
@@ -61,8 +65,14 @@ def read_sample(ser):
     return timestamp, values
 
 
+_print_count = 0
+
 def print_sample(timestamp, values):
-    print(timestamp, *values)
+    global _print_count
+    _print_count += 1
+
+    if PRINT_EVERY and _print_count % PRINT_EVERY == 0:
+        print(timestamp, *values)
 
 
 # -----------------------------------------------------------------------------
@@ -126,6 +136,8 @@ def apply_selected_filter(times, channel_values):
 
     if FILTER_METHOD == "fourier":
         return fourier_filter(times, channel_values)
+
+    return channel_values
 
 
 # -----------------------------------------------------------------------------
@@ -224,8 +236,11 @@ class LivePlot:
         if FILTER_MODE:
             values = apply_selected_filter(times, values)
 
+        # Filter on the full-rate data, then draw only every Nth point.
+        step = max(1, len(times) // LIVE_PLOT_MAX_POINTS)
+
         for line, channel_values in zip(self.lines, values):
-            line.set_data(times, channel_values)
+            line.set_data(times[::step], channel_values[::step])
 
         self.axis.set_xlim(
             max(0, times[-1] - 10),
@@ -288,6 +303,9 @@ def run_export_mode(ser):
 
         print_sample(timestamp, values)
 
+    if len(times) > 1 and times[-1] > 0:
+        print(f"Recorded {len(times)} samples, effective rate {(len(times) - 1) / times[-1]:.1f} Hz")
+
     if FILTER_MODE:
         channels = apply_selected_filter(times, channels)
 
@@ -314,7 +332,7 @@ def save_data(times, channels):
     with open(csv_path, "w", newline="") as csv_file:
         writer = csv.writer(csv_file)
         unit_header = "std_kPa" if (FILTER_MODE and FILTER_METHOD == "turbulence") else "kPa"
-        writer.writerow(["time_s"] + [f"ch{i}_kPa" for i in range(CHANNELS)])
+        writer.writerow(["time_s"] + [f"ch{i}_{unit_header}" for i in range(CHANNELS)])
         writer.writerows(zip(times, *channels))
 
     figure, axis = plt.subplots(figsize=(10, 5))
@@ -353,6 +371,10 @@ def main():
     print(f"Mode: {MODE} {'filtered' if FILTER_MODE else 'unfiltered'}")
 
     with serial.Serial(PORT, BAUD, timeout=0.1) as ser:
+        # Bigger OS receive buffer (Windows) so data isn't dropped while a plot redraws.
+        if hasattr(ser, "set_buffer_size"):
+            ser.set_buffer_size(rx_size=1_000_000)
+
         # Opening the serial port can reset the ESP32.
         time.sleep(2)
         ser.reset_input_buffer()

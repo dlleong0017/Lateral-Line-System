@@ -5,19 +5,21 @@
 #endif
 
 #define N_SENSORS   8
-#define OVERSAMPLE  16
-#define SAMPLE_HZ   20
+#define OVERSAMPLE  1        // was 16 - average in Python instead
+#define DISCARD     1        // throwaway reads after switching channel (try 0, check crosstalk)
+#define SAMPLE_HZ   400      // was 20
+#define BAUD        921600   // was 115200 - set your pyserial script to match
 
-#define SAMPLE_PERIOD_MS (1000 / SAMPLE_HZ)
+#define SAMPLE_PERIOD_US (1000000UL / SAMPLE_HZ)
 
-struct Sensor 
+struct Sensor
 {
   uint8_t pin;
   float   sensor_offset;
 };
 
 // pin  sensor_offset (kPa)
-Sensor sensors[N_SENSORS] = 
+Sensor sensors[N_SENSORS] =
 {
   { 36,  -0.115f },
   { 39,  -0.200f },
@@ -30,31 +32,28 @@ Sensor sensors[N_SENSORS] =
 };
 
 // readVoltage
-//  discards a few reads first so the ADC cap forgets the previous channel
-//  uses analogReadMilliVolts as the main source of tracking voltage
-float readVoltage(uint8_t idx) 
+//  one throwaway read so the ADC cap forgets the previous channel (no delays)
+float readVoltage(uint8_t idx)
 {
   uint8_t pin = sensors[idx].pin;
 
-  for (uint8_t k = 0; k < 4; k++) 
-  { 
-    analogRead(pin); delayMicroseconds(200);
+  for (uint8_t k = 0; k < DISCARD; k++)
+  {
+    analogRead(pin);
   }
 
   uint32_t sum = 0;
-  for (uint8_t k = 0; k < OVERSAMPLE; k++) 
+  for (uint8_t k = 0; k < OVERSAMPLE; k++)
   {
     sum += analogReadMilliVolts(pin);
-    delayMicroseconds(100);
   }
 
-  return (sum / OVERSAMPLE) / 1000.0f;
+  return (sum / (float)OVERSAMPLE) / 1000.0f;
 }
 
 // readPressure
-//  based on 
-//
-float readPressure(uint8_t idx) 
+//  MPXV7002: Vout = Vs * (0.2 * P + 0.5)
+float readPressure(uint8_t idx)
 {
   float v_pin    = readVoltage(idx);
   float v_sensor = v_pin * (5.0f / 3.3f);
@@ -63,7 +62,8 @@ float readPressure(uint8_t idx)
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.setTxBufferSize(2048);   // so printing doesn't block the next sweep
+  Serial.begin(BAUD);
   WiFi.mode(WIFI_OFF);
   btStop();
 
@@ -81,19 +81,15 @@ void setup() {
 }
 
 void loop() {
-  static uint32_t next_due = 0;
-  static bool     started  = false;
-  if (!started) 
-  {
-    next_due = millis(); started = true; 
-  }
+  static uint32_t next_due = micros();
 
-  if ((int32_t)(millis() - next_due) < 0)
+  if ((int32_t)(micros() - next_due) < 0)
   {
     return;
   }
 
-  uint32_t t = millis();
+  uint32_t t  = millis();
+  uint32_t t0 = micros();
 
   float p[N_SENSORS];
 
@@ -102,19 +98,40 @@ void loop() {
     p[i] = readPressure(i);
   }
 
-  Serial.print(t);
+  uint32_t t1 = micros();
+
+  // Same text as before (t,p0,...,p7 with 4 decimals), but built with integer
+  // formatting into one buffer and sent in a single write - float printf is slow.
+  char line[128];
+  int  len = snprintf(line, sizeof(line), "%lu", (unsigned long)t);
+
   for (uint8_t i = 0; i < N_SENSORS; i++)
   {
-    Serial.printf(",%.4f", p[i]);
+    long v = lroundf(p[i] * 10000.0f);
+    const char* sign = (v < 0) ? "-" : "";
+    if (v < 0) v = -v;
+    len += snprintf(line + len, sizeof(line) - len, ",%s%ld.%04ld", sign, v / 10000, v % 10000);
   }
 
-  Serial.println();
+  line[len++] = '\r';   // \r\n like println, so serial monitors start each line at the left
+  line[len++] = '\n';
+  Serial.write((const uint8_t*)line, len);
+
+  uint32_t t2 = micros();
+
+  // Timing check, once per second. No commas, so capture.py skips this line.
+  static uint32_t n = 0;
+  if (++n >= SAMPLE_HZ)
+  {
+    n = 0;
+    Serial.printf("# read_us=%u print_us=%u\r\n", (unsigned)(t1 - t0), (unsigned)(t2 - t1));
+  }
 
   // Advance by exactly one period so the average rate stays true.
-  // If the sweep overran, resync instead of bursting to catch up.
-  next_due += SAMPLE_PERIOD_MS;
-  if ((int32_t)(millis() - next_due) > 0)
+  // If the sweep overran, start the next one immediately (don't wait a full period).
+  next_due += SAMPLE_PERIOD_US;
+  if ((int32_t)(micros() - next_due) > 0)
   {
-    next_due = millis() + SAMPLE_PERIOD_MS;
+    next_due = micros();
   }
 }

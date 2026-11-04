@@ -8,7 +8,8 @@ Lateral-Line-System/
 │   ├── src/
 │   │   └── main.cpp              # ESP32 firmware and sensor acquisition
 │   ├── Data/                     # Exported pressure CSV files and plots
-│   └── capture.py                # Live plotting and data-export program
+│   └── capture.py                # Export mode: records X seconds | Live mode: outputs live data
+│   └── fourier.py                # Set the desired output folder for the graph and generates FFT/PSD of data
 ├── Pitot Tube/
 │   ├── src/
 │   │   └── main.cpp              # ESP32 firmware and sensor acquisition
@@ -47,6 +48,7 @@ pip install pyserial matplotlib numpy
 ```
 
 Run the script:
+  I do this by clicking the run button in VS Code
 
 ```bash
 python capture.py
