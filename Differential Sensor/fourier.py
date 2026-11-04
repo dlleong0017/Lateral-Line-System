@@ -255,17 +255,17 @@ def analyze_csv_psd_overlaid(csv_file_path, title='Power Spectral Density (Overl
 if __name__ == '__main__':
     # Robust path relative to script location
     SCRIPT_DIR = Path(__file__).resolve().parent
-    csv_filename = SCRIPT_DIR / 'Data' / 'VerifiedTesting' / 'noisy_vortex_shedding.csv'
+    csv_filename = SCRIPT_DIR / 'Data' / '11-2-2026Testing' / 'cylinder_trial3.csv'
 
     # Declare titles in the main section
-    fft_rows_title = 'FFT, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
-    psd_rows_title = 'PSD, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
-    fft_overlaid_title = 'FFT, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
-    psd_overlaid_title = 'PSD, flow velocity = 0.5m/s, cylinder diameter = 5cm, St = 0.2'
+    # fft_rows_title = 'FFT, flow velocity = 1.0m/s, cylinder diameter = 5cm, St = 0.2'
+    # psd_rows_title = 'PSD, flow velocity = 1.0m/s, cylinder diameter = 5cm, St = 0.2'
+    fft_overlaid_title = 'FFT: Cylinder Trial 3, 0.9 m/s'
+    psd_overlaid_title = 'PSD: Cylinder Trial 3, 0.9 m/s'
 
     # Pass the titles as arguments
-    analyze_csv_fft(csv_filename, title=fft_rows_title)
-    analyze_csv_psd(csv_filename, title=psd_rows_title)
+    # analyze_csv_fft(csv_filename, title=fft_rows_title)
+    # analyze_csv_psd(csv_filename, title=psd_rows_title)
 
     analyze_csv_fft_overlaid(csv_filename, title=fft_overlaid_title)
     analyze_csv_psd_overlaid(csv_filename, title=psd_overlaid_title)
