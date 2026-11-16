@@ -195,115 +195,132 @@ def analyze_csv_psd(csv_file_path, title='Power Spectral Density'):
 
     plt.show()
 
-def analyze_csv_psd_overlaid(csv_file_path, title='Power Spectral Density (Overlaid)'):
-    # # Load the CSV data
-    # df = pd.read_csv(csv_file_path)
-
-    # # Extract time array and determine sampling parameters
-    # time = df['time_s'].values
-    # dt = np.mean(np.diff(time))  # Time step / sampling interval
-    # fs = 1.0 / dt                # Sampling frequency (Hz)
-
-    # # Extract channel names (excluding the time column and ch7)
-    # channel_cols = [col for col in df.columns if col.strip() not in ('time_s', 'ch7_kPa')]
-
-    # # Create a 1x2 subplot layout for overlaid signals
-    # fig, axes = plt.subplots(
-    #     1, 2, 
-    #     figsize=(14, 6), 
-    #     constrained_layout=True
-    # )
-
-    # # Color palette cycle for distinct channel colors
-    # colors = plt.cm.tab10(np.linspace(0, 1, len(channel_cols)))
-
-    # for col, color in zip(channel_cols, colors):
-    #     signal = df[col].values
-
-    #     # Subtract the mean (DC component) from the signal
-    #     signal_detrended = signal - np.mean(signal)
-
-    #     # Compute Power Spectral Density using Welch's method
-    #     nperseg = min(len(signal), 1024)
-    #     freqs, psd = welch(signal_detrended, fs=fs, nperseg=nperseg)
-
-    #     # Plot Time-Domain Signal on left subplot
-    #     axes[0].plot(time, signal, label=col, color=color, alpha=0.8, linewidth=1.2)
-
-    #     # Plot PSD on right subplot
-    #     axes[1].plot(freqs, psd, label=col, color=color, alpha=0.8, linewidth=1.2)
-
-    # # Time Domain Formatting
-    # axes[0].set_title('Time Domain (Overlaid)', fontsize=12, fontweight='bold', pad=10)
-    # axes[0].set_xlabel('Time (s)', fontsize=10, fontweight='bold')
-    # axes[0].set_ylabel('Signal Value', fontsize=10, fontweight='bold')
-    # axes[0].grid(True, linestyle='--', alpha=0.5)
-    # axes[0].legend(loc='upper right', fontsize=8)
-
-    # # PSD Formatting
-    # axes[1].set_title('Power Spectral Density (Overlaid)', fontsize=12, fontweight='bold', pad=10)
-    # axes[1].set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
-    # axes[1].set_ylabel('PSD (V²/Hz)', fontsize=10, fontweight='bold')
-    # axes[1].grid(True, linestyle='--', alpha=0.5)
-    # axes[1].legend(loc='upper right', fontsize=8)
-    # axes[1].set_xlim(1, 30)
-    # axes[1].set_ylim(0, 0.0005)
-
-    # # Overall Figure Title
-    # fig.suptitle(title, fontsize=14, fontweight='bold')
-
-    # plt.show()
+def analyze_csv_psd_overlaid(csv_file_path, title='Experimental Signal and PSD'):
     # Load the CSV data
     df = pd.read_csv(csv_file_path)
 
-    # Sampling parameters
+    # Extract time array and determine sampling parameters
     time = df['time_s'].values
-    dt = np.mean(np.diff(time))
-    fs = 1.0 / dt
+    dt = np.mean(np.diff(time))      # Time step / sampling interval
+    fs = 1.0 / dt                    # Sampling frequency (Hz)
 
-    # Channels (excluding time and ch7)
-    channel_cols = [col for col in df.columns if col.strip() not in ('time_s', 'ch7_kPa')]
+    # Extract channel names (excluding the time column and ch7)
+    channel_cols = [
+        col for col in df.columns
+        if col.strip() not in ('time_s', 'ch7_kPa')
+    ]
 
-    # Single plot
-    fig, ax = plt.subplots(figsize=(10, 6), constrained_layout=True)
+    # Create a 1x2 subplot layout
+    fig, axes = plt.subplots(
+        1, 2,
+        figsize=(14, 6),
+        constrained_layout=True
+    )
 
+    # Color palette cycle for distinct channel colors
     colors = plt.cm.tab10(np.linspace(0, 1, len(channel_cols)))
 
     for col, color in zip(channel_cols, colors):
-        signal = df[col].values * 1000
+        # Signal is in kPa
+        signal = df[col].values
+
+        # Subtract the mean (DC component) from the signal
         signal_detrended = signal - np.mean(signal)
 
+        # Compute Power Spectral Density using Welch's method
         nperseg = min(len(signal), 1024)
-        freqs, psd = welch(signal_detrended, fs=fs, nperseg=nperseg)
+        freqs, psd = welch(
+            signal_detrended,
+            fs=fs,
+            nperseg=nperseg
+        )
 
-        ax.plot(freqs, psd, label=col, color=color, alpha=0.8, linewidth=1.2)
+        # Plot Time-Domain Experimental Signal
+        axes[0].plot(
+            time,
+            signal,
+            label=col,
+            color=color,
+            alpha=0.8,
+            linewidth=1.2
+        )
+
+        # Plot PSD
+        axes[1].plot(
+            freqs,
+            psd,
+            label=col,
+            color=color,
+            alpha=0.8,
+            linewidth=1.2
+        )
+
+    # Time Domain Formatting
+    axes[0].set_title(
+        'Experimental Signal (Time Domain)',
+        fontsize=12,
+        fontweight='bold',
+        pad=10
+    )
+    axes[0].set_xlabel(
+        'Time (s)',
+        fontsize=10,
+        fontweight='bold'
+    )
+    axes[0].set_ylabel(
+        'Pressure (kPa)',
+        fontsize=10,
+        fontweight='bold'
+    )
+    axes[0].grid(True, linestyle='--', alpha=0.5)
+    axes[0].legend(loc='upper right', fontsize=8)
 
     # PSD Formatting
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=10)
-    ax.set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
-    ax.set_ylabel('PSD (Pa²/Hz)', fontsize=10, fontweight='bold')
-    ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend(loc='upper right', fontsize=8)
-    ax.ticklabel_format(axis='y', style='plain')
-    ax.set_xlim(1, 30)
-    ax.set_ylim(0, 50)
+    axes[1].set_title(
+        'Power Spectral Density',
+        fontsize=12,
+        fontweight='bold',
+        pad=10
+    )
+    axes[1].set_xlabel(
+        'Frequency (Hz)',
+        fontsize=10,
+        fontweight='bold'
+    )
+    axes[1].set_ylabel(
+        'PSD (kPa²/Hz)',
+        fontsize=10,
+        fontweight='bold'
+    )
+    axes[1].grid(True, linestyle='--', alpha=0.5)
+    axes[1].legend(loc='upper right', fontsize=8)
+
+    # Nyquist frequency = fs / 2
+    axes[1].set_xlim(0, fs / 2)
+
+    # Overall Figure Title
+    fig.suptitle(
+        title,
+        fontsize=14,
+        fontweight='bold'
+    )
 
     plt.show()
 
 if __name__ == '__main__':
     # Robust path relative to script location
     SCRIPT_DIR = Path(__file__).resolve().parent
-    csv_filename = SCRIPT_DIR / 'Data' / '11-9-2026Testing' / 'trial2.csv'
+    csv_filename = SCRIPT_DIR / 'Data' / '11-9-2026Testing' / 'cylinder3.csv'
 
     # Declare titles in the main section
     # fft_rows_title = 'FFT, flow velocity = 1.0m/s, cylinder diameter = 5cm, St = 0.2'
     # psd_rows_title = 'PSD, flow velocity = 1.0m/s, cylinder diameter = 5cm, St = 0.2'
-    fft_overlaid_title = 'FFT: Cylinder Trial 3, 0.9 m/s'
-    psd_overlaid_title = 'PSD: Cylinder Trial 3, 0.9 m/s'
+    fft_overlaid_title = 'FFT: Cylinder, St=0.2, D=12cm, distance=43cm away, U=0.9 m/s'
+    psd_overlaid_title = 'PSD: Cylinder, St=0.2, D=12cm, distance=43cm away, U=0.9 m/s'
 
     # Pass the titles as arguments
     # analyze_csv_fft(csv_filename, title=fft_rows_title)
     # analyze_csv_psd(csv_filename, title=psd_rows_title)
 
-    # analyze_csv_fft_overlaid(csv_filename, title=fft_overlaid_title)
+    analyze_csv_fft_overlaid(csv_filename, title=fft_overlaid_title)
     analyze_csv_psd_overlaid(csv_filename, title=psd_overlaid_title)
