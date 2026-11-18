@@ -296,7 +296,8 @@ def analyze_csv_psd_overlaid(csv_file_path, title='Experimental Signal and PSD')
     axes[1].legend(loc='upper right', fontsize=8)
 
     # Nyquist frequency = fs / 2
-    axes[1].set_xlim(0, 10)
+    axes[1].set_xlim(0, fs / 2)
+    axes[1].set_yscale('log')
 
     # Overall Figure Title
     fig.suptitle(
