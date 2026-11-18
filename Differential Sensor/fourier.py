@@ -296,7 +296,7 @@ def analyze_csv_psd_overlaid(csv_file_path, title='Experimental Signal and PSD')
     axes[1].legend(loc='upper right', fontsize=8)
 
     # Nyquist frequency = fs / 2
-    axes[1].set_xlim(0, fs / 2)
+    axes[1].set_xlim(0, 10)
     axes[1].set_yscale('log')
 
     # Overall Figure Title
@@ -311,13 +311,13 @@ def analyze_csv_psd_overlaid(csv_file_path, title='Experimental Signal and PSD')
 if __name__ == '__main__':
     # Robust path relative to script location
     SCRIPT_DIR = Path(__file__).resolve().parent
-    csv_filename = SCRIPT_DIR / 'Data' / '11-9-2026Testing' / 'cylinder3.csv'
+    csv_filename = SCRIPT_DIR / 'Data' / '11-9-2026Testing' / 'trial1.csv'
 
     # Declare titles in the main section
     # fft_rows_title = 'FFT, flow velocity = 1.0m/s, cylinder diameter = 5cm, St = 0.2'
     # psd_rows_title = 'PSD, flow velocity = 1.0m/s, cylinder diameter = 5cm, St = 0.2'
     fft_overlaid_title = 'FFT: Cylinder, St=0.2, D=12cm, distance=43cm away, U=0.9 m/s'
-    psd_overlaid_title = 'PSD: Cylinder, St=0.2, D=12cm, distance=43cm away, U=0.9 m/s'
+    psd_overlaid_title = 'PSD: Cylinder Manual Frequency 1 Hz'
 
     # Pass the titles as arguments
     # analyze_csv_fft(csv_filename, title=fft_rows_title)
