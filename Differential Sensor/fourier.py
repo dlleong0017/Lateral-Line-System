@@ -296,7 +296,7 @@ def analyze_csv_psd_overlaid(csv_file_path, title='Experimental Signal and PSD')
     axes[1].legend(loc='upper right', fontsize=8)
 
     # Nyquist frequency = fs / 2
-    axes[1].set_xlim(0, fs / 2)
+    axes[1].set_xlim(0, 10)
 
     # Overall Figure Title
     fig.suptitle(
@@ -322,5 +322,5 @@ if __name__ == '__main__':
     # analyze_csv_fft(csv_filename, title=fft_rows_title)
     # analyze_csv_psd(csv_filename, title=psd_rows_title)
 
-    analyze_csv_fft_overlaid(csv_filename, title=fft_overlaid_title)
+    # analyze_csv_fft_overlaid(csv_filename, title=fft_overlaid_title)
     analyze_csv_psd_overlaid(csv_filename, title=psd_overlaid_title)
